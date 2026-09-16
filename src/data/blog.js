@@ -162,8 +162,14 @@ results[?confidence >= \`70\`].{
 
 \`\`\`text
 # Flatten related infrastructure from a nested response into one flat list
-results[].related_infrastructure[].ip | sort(@) | distinct(@)
+results[].related_infrastructure[].ip | sort(@)
 \`\`\`
+
+Core JMESPath has no built-in \`distinct()\` — that's a separate "JMESPath
+Community" extension, not part of the spec the standard \`jmespath\` library
+implements. Sort first, then dedupe the now-adjacent repeats with one line
+of the host language (Python: \`list(dict.fromkeys(result))\`), rather than
+reaching for a function that isn't actually there.
 
 That second pattern — filter, project, flatten — covers most of what
 enrichment normalization actually needs, and it's portable across whatever
@@ -395,8 +401,13 @@ indicators[?confidence >= \`80\`].indicator
 Flatten nested infrastructure:
 
 \`\`\`text
-results[].infrastructure[].ip | sort(@) | distinct(@)
+results[].infrastructure[].ip | sort(@)
 \`\`\`
+
+> Core JMESPath (the spec the \`jmespath\` library implements) has no
+> \`distinct()\` — that only exists in the separate "JMESPath Community"
+> extension. Sort first, then dedupe the now-adjacent repeats with one line
+> of the host language, e.g. Python's \`list(dict.fromkeys(result))\`.
 
 ## Takeaway
 

@@ -20,9 +20,9 @@ export const projects = [
     id: 'PROJECT_002',
     title: 'Threat Intelligence Pipeline',
     summary:
-      'Ingests open threat feeds, normalizes indicators, deduplicates, and enriches them for downstream detection and hunting workflows.',
-    tags: ['Python', 'Elasticsearch', 'JMESPath', 'Threat Intelligence'],
-    links: { repo: '', demo: '' },
+      'A runnable six-stage pipeline — collection, normalization, deduplication, enrichment, scoring, and dissemination — with JMESPath-based enrichment reshaping, 20 passing tests, and an optional Elasticsearch adapter.',
+    tags: ['Python', 'JMESPath', 'Elasticsearch', 'Threat Intelligence', 'pytest'],
+    links: { repo: 'https://github.com/NadiaLiaquat/threat-intel-pipeline', demo: '' },
     status: 'PROTOTYPE',
     visualSeed: 27,
   },
