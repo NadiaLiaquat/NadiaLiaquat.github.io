@@ -27,27 +27,116 @@ export const posts = [
     title: 'Structuring a Threat Intelligence Workflow',
     date: '2026-08-14',
     category: 'Threat Intelligence',
-    readingTime: '7 min',
+    readingTime: '12 min',
     author: 'ROOT_SEEKER',
-    tags: ['Threat Intelligence', 'Process', 'IOCs'],
+    tags: ['Threat Intelligence', 'Process', 'IOCs', 'JMESPath', 'Pipeline Design'],
     excerpt:
-      'A practical framework for turning raw feeds into prioritized, contextual intelligence that downstream teams can actually use.',
+      'A practical framework for turning raw feeds into prioritized, contextual intelligence that downstream teams can actually use — the complete pipeline, stage by stage.',
     visualSeed: 12,
     content: `## Why structure matters
 
-Raw indicators are cheap. Context is expensive. A workflow exists to convert
-high-volume, low-context data into a small number of decisions.
+Raw indicators are cheap. Context is expensive. A CTI feed subscription gets
+you volume; it does not get you decisions. Without a defined workflow, most
+of what comes in either gets ignored (too much noise to triage manually) or
+gets pushed downstream unfiltered (too much noise for the SOC to act on
+either). A workflow exists to convert high-volume, low-context data into a
+small number of high-confidence decisions someone can actually act on.
 
-## The pipeline
+This isn't a new idea — it's the same shape as the intelligence cycle
+analysts have used for decades, just implemented with code instead of paper
+files.
 
-- **Collection** — pull from feeds, sharing communities, and internal telemetry.
-- **Normalization** — one schema, consistent indicator types, consistent timestamps.
-- **Deduplication** — collapse repeats before they inflate metrics.
-- **Enrichment** — reputation, first/last seen, related infrastructure.
-- **Scoring** — confidence and severity, expressed as numbers you can filter on.
-- **Dissemination** — push to detection, hunting, and IR in the format each expects.
+## Where this fits: the intelligence cycle
 
-## A minimal enrichment step
+Classic tradecraft describes intelligence work as a cycle, not a pipe with an
+end: **Direction → Collection → Processing → Analysis → Dissemination →
+Feedback**, and back to Direction. The technical pipeline below is that cycle
+made concrete for a CTI/detection-engineering context — every stage maps onto
+one of those phases, and the feedback stage is not optional. A pipeline
+without feedback just produces the same noise forever, slightly faster.
+
+## The complete pipeline
+
+\`\`\`flow
+Collection: feeds, OSINT, telemetry
+-> Normalization: one schema, one clock
+-> Deduplication: collapse repeats
+-> Enrichment: reputation, context, verdicts
+-> Scoring: confidence + severity
+-> Dissemination: SIEM, EDR, hunts, IR
+\`\`\`
+
+Six stages, each with a distinct job and a distinct failure mode. Skipping
+one doesn't make the pipeline faster — it just moves the failure downstream
+to whoever consumes the output next.
+
+## Collection
+
+Collection means deciding, in advance, what you're pulling and why — not
+just turning on every feed available. Reasonable sources fall into a few
+buckets:
+
+- **Commercial and open threat feeds** — structured indicator lists (STIX/TAXII,
+  CSV, JSON), usually broad but shallow on context.
+- **Sharing communities / ISACs** — sector-specific, often higher signal
+  because members validate before sharing.
+- **OSINT** — vendor writeups, sandbox reports, researcher disclosures — high
+  context, but unstructured and needs parsing.
+- **Internal telemetry** — your own logs, EDR alerts, and confirmed incidents.
+  This is the only source that's guaranteed relevant to *your* environment.
+
+The common failure here isn't under-collection, it's over-collection with no
+plan: subscribing to every feed available and hoping normalization sorts it
+out later. It won't — garbage volume just moves the bottleneck one stage
+down.
+
+## Normalization
+
+Every source has its own shape. Normalization is the step where all of that
+gets forced into one internal schema before anything else touches it —
+consistent field names, consistent indicator typing (IP vs. domain vs. hash
+vs. URL), and every timestamp converted to a single timezone (UTC, always).
+
+A minimal normalized record looks something like:
+
+\`\`\`json
+{
+  "indicator": "185.220.101.7",
+  "type": "ipv4",
+  "first_seen": "2026-07-02T14:11:00Z",
+  "last_seen": "2026-08-11T03:44:00Z",
+  "source": "feed_alpha",
+  "raw_context": "TOR exit node, seen in C2 traffic"
+}
+\`\`\`
+
+Skip this step and every stage after it has to special-case each source
+individually — deduplication can't compare apples to apples, scoring can't
+weigh sources consistently, and dissemination has to reformat data per
+destination instead of once, centrally.
+
+## Deduplication
+
+The same indicator arrives from multiple feeds, multiple times, with slightly
+different metadata. Left alone, this inflates every downstream metric — an
+indicator seen once by three sources looks three times as "hot" as one seen
+three times by a single source, which is a meaningfully different signal.
+
+Exact-match deduplication (same indicator value, same type) is cheap and
+should always run first. Near-duplicate detection matters more for
+unstructured OSINT — the same campaign described in two writeups with
+slightly different sample hashes or IOC formatting. A simple approach:
+normalize the indicator string, then hash it; anything colliding gets merged
+rather than duplicated, with source lists combined instead of overwritten.
+
+## Enrichment
+
+Enrichment is where an indicator stops being a bare string and becomes
+something an analyst can make a decision from: reputation scores, passive
+DNS history, WHOIS/registration data, sandbox detonation verdicts,
+geolocation and ASN, and links to related infrastructure. This is also
+usually the most expensive stage — external lookups cost time, API quota, or
+both — so it should run *after* deduplication, never before.
 
 \`\`\`python
 def enrich(indicator, sources):
@@ -57,12 +146,98 @@ def enrich(indicator, sources):
     return indicator
 \`\`\`
 
+In practice, enrichment sources return wildly inconsistent JSON shapes, and
+reshaping that into your normalized schema is most of the real engineering
+effort here. [JMESPath](https://jmespath.org/) earns its keep at exactly this
+step:
+
+\`\`\`text
+# Pull just what matters out of a bulky enrichment API response
+results[?confidence >= \`70\`].{
+  indicator: value,
+  verdict: verdict,
+  seen: last_seen
+}
+\`\`\`
+
+\`\`\`text
+# Flatten related infrastructure from a nested response into one flat list
+results[].related_infrastructure[].ip | sort(@) | distinct(@)
+\`\`\`
+
+That second pattern — filter, project, flatten — covers most of what
+enrichment normalization actually needs, and it's portable across whatever
+language ends up calling the API.
+
+## Scoring
+
+Confidence and severity are two different questions and should never be
+collapsed into one number. **Confidence** asks: *how sure are we this
+indicator is genuinely malicious?* **Severity** asks: *if it is, how bad is
+that for us specifically?* A low-confidence indicator tied to a critical
+asset still deserves attention; a high-confidence indicator for
+infrastructure you don't run doesn't.
+
+A simple weighted scoring approach:
+
+\`\`\`python
+def score(indicator):
+    confidence = (
+        0.4 * indicator.source_reliability
+        + 0.35 * indicator.corroboration_count
+        + 0.25 * indicator.recency
+    )
+    severity = asset_criticality(indicator.related_assets)
+    return confidence, severity
+\`\`\`
+
+The exact weights matter less than the discipline of keeping them separate
+and documented — so when a score turns out wrong, you can tell whether the
+confidence model or the severity model needs adjusting.
+
+## Dissemination
+
+The same intelligence product needs a different shape for every consumer:
+SIEM rules want indicator lists formatted for correlation searches, EDR wants
+block/allow lists, threat hunters want a hypothesis and a query, and incident
+response wants a playbook entry, not a raw feed. Dissemination is a
+translation layer, not a broadcast — pushing one unfiltered feed to every
+downstream system is how alert fatigue starts.
+
+## Closing the loop: feedback
+
+This is the stage most pipelines skip, and it's the one that actually makes
+the other five worth building. Every downstream outcome — a confirmed true
+positive, a closed-as-false-positive, a hunt that found nothing — should feed
+back into the pipeline: source reliability weights adjust, scoring thresholds
+tune, and collection priorities shift toward what's actually producing
+value. Without this, the pipeline is a straight line instead of a cycle, and
+it never gets better on its own.
+
+## Common pitfalls
+
+- **Collecting without a plan.** More feeds isn't more intelligence; it's
+  more normalization work for no added signal.
+- **Enriching before deduplicating.** Paying the enrichment cost three times
+  for one indicator is pure waste.
+- **One score for both confidence and severity.** Conflating them makes both
+  numbers meaningless.
+- **No feedback loop.** The pipeline stays exactly as noisy in month twelve
+  as it was in month one.
+- **Dissemination as broadcast.** Sending the same raw output to every team
+  guarantees most of it gets ignored.
+
 ## Measuring value
 
 > If an intelligence product never changes a decision, it is documentation, not intelligence.
 
-Track how often a product leads to a new detection, a closed hunt, or a scoped
-incident. Those are the only metrics that matter.`,
+Track how often a product leads to a new detection, a closed hunt, or a
+scoped incident — not raw indicator volume, which measures collection, not
+value. A few metrics worth tracking over time: analyst time from alert to
+verdict, the false-positive rate per source (which should trend down as
+feedback tunes source weighting), and the percentage of disseminated
+indicators that ever get referenced in an actual investigation. Those are
+the numbers that tell you whether the pipeline is working, not just running.`,
   },
   {
     id: 'LOG_002',

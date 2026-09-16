@@ -1,13 +1,15 @@
 /**
  * markdown.jsx — intentionally tiny Markdown renderer for blog post bodies.
- * Supports: #/##/### headings, fenced ``` code blocks, - lists, > quotes,
- * blank-line paragraphs, and inline **bold**, *italic*, `code`, [links](url).
+ * Supports: #/##/### headings, fenced ``` code blocks, a ```flow pipeline
+ * diagram (see FlowDiagram below), - lists, > quotes, blank-line paragraphs,
+ * and inline **bold**, *italic*, `code`, [links](url).
  *
  * This is not a general-purpose parser — it only handles the subset used in
  * src/data/blog.js. Input is authored by the site owner (trusted), so no
  * sanitization layer is included; do not feed it untrusted content.
  */
 import React from 'react'
+import { ArrowRight } from 'lucide-react'
 
 let keySeq = 0
 const k = () => `md-${keySeq++}`
@@ -42,6 +44,58 @@ function inline(text) {
       )
     return <React.Fragment key={k()}>{part}</React.Fragment>
   })
+}
+
+/**
+ * FlowDiagram — a lightweight left-to-right (wrapping) pipeline diagram, no
+ * charting library required. Authored in a ```flow fence as:
+ *
+ *   Collection: feeds, OSINT -> Normalization: one schema -> Scoring
+ *
+ * Each stage is "Label" or "Label: short caption"; stages are separated by
+ * "->". Wraps to multiple rows on narrow viewports automatically.
+ */
+function FlowDiagram({ source }) {
+  const stages = source
+    .split('->')
+    .map((s) => s.trim())
+    .filter(Boolean)
+    .map((s) => {
+      const idx = s.indexOf(':')
+      return idx === -1
+        ? { label: s.trim(), caption: '' }
+        : { label: s.slice(0, idx).trim(), caption: s.slice(idx + 1).trim() }
+    })
+
+  if (stages.length === 0) return null
+
+  return (
+    <div
+      role="img"
+      aria-label={`Pipeline diagram: ${stages.map((s) => s.label).join(' → ')}`}
+      className="my-6 flex flex-wrap items-stretch gap-2 rounded-lg border border-white/10 bg-white/[0.02] p-4"
+    >
+      {stages.map((stage, i) => (
+        <React.Fragment key={k()}>
+          <div className="flex min-w-[9rem] flex-1 flex-col justify-center rounded-md border border-cyan/30 bg-cyan/[0.05] px-3 py-2.5 text-center">
+            <span className="mono text-[10.5px] font-semibold uppercase tracking-[0.1em] text-cyan">
+              {stage.label}
+            </span>
+            {stage.caption && (
+              <span className="mt-1 text-[11px] leading-snug text-muted">{stage.caption}</span>
+            )}
+          </div>
+          {i < stages.length - 1 && (
+            <ArrowRight
+              size={16}
+              className="my-auto flex-none text-muted/60"
+              aria-hidden="true"
+            />
+          )}
+        </React.Fragment>
+      ))}
+    </div>
+  )
 }
 
 /** Extract `## `/`### ` headings for a table of contents. */
@@ -84,6 +138,12 @@ export function Markdown({ children }) {
         i++
       }
       i++ // consume closing fence
+
+      if (lang === 'flow') {
+        blocks.push(<FlowDiagram key={k()} source={buf.join('\n')} />)
+        continue
+      }
+
       blocks.push(
         <pre
           key={k()}
