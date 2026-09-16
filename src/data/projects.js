@@ -38,11 +38,11 @@ export const projects = [
   },
   {
     id: 'PROJECT_004',
-    title: 'IOC Validation Engine',
+    title: 'Threat Intelligence Platform',
     summary:
-      'Scores and validates indicators of compromise against reputation sources and context rules to reduce false positives.',
-    tags: ['Python', 'JMESPath', 'Threat Intelligence'],
-    links: { repo: '', demo: '' },
+      'Self-hosted TIP: automated collection from 4 live feeds (URLhaus, ThreatFox, MalwareBazaar, Feodo Tracker) across IP/URL/domain/MD5/SHA1/SHA256, Elasticsearch storage, a FastAPI backend, and a dashboard with a region-wise threat map. Docker Compose stack, no API keys required.',
+    tags: ['Python', 'FastAPI', 'Elasticsearch', 'React', 'Docker', 'Threat Intelligence'],
+    links: { repo: 'https://github.com/NadiaLiaquat/threat-intel-platform', demo: '' },
     status: 'PROTOTYPE',
     visualSeed: 58,
   },
