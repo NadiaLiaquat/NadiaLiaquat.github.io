@@ -6,6 +6,7 @@ import CornerFrame from './ui/CornerFrame.jsx'
 import Reveal from './ui/Reveal.jsx'
 import PlatformBadges from './PlatformBadges.jsx'
 import Publications from './Publications.jsx'
+import { asset } from '../lib/asset.js'
 
 export function Certifications() {
   const hasCerts = certifications.length > 0
@@ -41,7 +42,7 @@ export function Certifications() {
 
                     {cert.verifyUrl && (
                       <a
-                        href={cert.verifyUrl}
+                        href={asset(cert.verifyUrl)}
                         target="_blank"
                         rel="noopener noreferrer"
                         className="mono mt-auto inline-flex items-center gap-1.5 pt-5 text-[11px] tracking-[0.14em] text-green transition-colors hover:text-cyan"

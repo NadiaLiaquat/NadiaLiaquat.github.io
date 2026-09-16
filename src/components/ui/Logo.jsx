@@ -1,6 +1,7 @@
 import React from 'react'
 import { profile } from '../../data/profile.js'
 import { cn } from '../../lib/cn.js'
+import { asset } from '../../lib/asset.js'
 
 /**
  * Logo — the site's avatar mark (public/logo-avatar.png) framed in a small
@@ -21,7 +22,7 @@ export function Logo({ className, size = 36, showText = false }) {
         }}
       >
         <img
-          src="/logo-avatar.png"
+          src={asset('logo-avatar.png')}
           alt={`${profile.codename} — site logo`}
           width={size}
           height={size}

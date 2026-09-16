@@ -22,3 +22,8 @@ npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 pnpm-debug.log*
+.pv.log
+.pverr.log
+.dev.log
+.deverr.log
+.preview.log

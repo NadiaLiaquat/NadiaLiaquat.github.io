@@ -1,0 +1,66 @@
+name: Deploy to GitHub Pages
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - run: npm ci
+
+      # A GitHub Pages USER/ORG site (repo named <you>.github.io) serves
+      # from "/". A PROJECT site (any other repo name) serves from
+      # "/repo-name/" — Vite's `base` and React Router's `basename` (see
+      # src/main.jsx, which reads import.meta.env.BASE_URL) both need to
+      # match that at build time, so this computes it automatically instead
+      # of hardcoding a repo name.
+      - name: Compute base path
+        id: base
+        run: |
+          if [[ "${{ github.event.repository.name }}" == *.github.io ]]; then
+            echo "path=/" >> "$GITHUB_OUTPUT"
+          else
+            echo "path=/${{ github.event.repository.name }}/" >> "$GITHUB_OUTPUT"
+          fi
+
+      - run: npm run build -- --base=${{ steps.base.outputs.path }}
+
+      # public/404.html's SPA-redirect script (see that file) needs to know
+      # how many path segments to keep — 1 for a project page's "/repo-name/"
+      # prefix, 0 for a user/org page at "/". Patch the built copy to match.
+      - name: Patch 404.html for project pages
+        if: steps.base.outputs.path != '/'
+        run: sed -i 's/pathSegmentsToKeep = 0/pathSegmentsToKeep = 1/' dist/404.html
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: dist
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4
